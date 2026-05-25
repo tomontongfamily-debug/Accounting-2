@@ -1,135 +1,305 @@
-import { ClipboardList, Database, FileText, Gauge, ReceiptText } from "lucide-react";
-import { shifts } from "../data";
-import { litersFmt, php, toNum } from "../utils";
-import { Card, DataTable, Num, RowList, Section, Text } from "./SharedUI";
+import { BarChart3, CheckCircle2, Database, FileText, Gauge, ReceiptText } from "lucide-react";
+import { DISCOUNT_PER_LITER, products } from "./data";
+import { litersFmt, php, posPrice, toNum } from "./utils";
+import { Card, DataTable, ReadOnlyLine, Section, SimpleExplain } from "./SharedUI";
 
-export function Cashier({
-  report,
-  result,
-  patch,
-  patchObj,
-  patchPump,
-  patchTank,
-  patchDeduction,
-  addPo,
-  patchPo,
-  deletePo,
-  addPurchase,
-  patchPurchase,
-  deletePurchase,
-}) {
+function CardGrid({ items, cols = "md:grid-cols-2 xl:grid-cols-4" }) {
+  return (
+    <div className={`grid gap-4 ${cols}`}>
+      {items.map((item) => <Card key={item.title} {...item} />)}
+    </div>
+  );
+}
+
+function LineList({ items }) {
+  return (
+    <div className="space-y-2">
+      {items.map(([label, value]) => <ReadOnlyLine key={label} label={label} value={value} />)}
+    </div>
+  );
+}
+
+function varianceColor(value) {
+  const n = toNum(value);
+  if (n < 0) return "text-rose-600";
+  if (n > 0) return "text-emerald-700";
+  return "text-slate-700";
+}
+
+function varianceBadge(value) {
+  const n = toNum(value);
+  if (n < 0) return "bg-rose-100 text-rose-700";
+  if (n > 0) return "bg-emerald-100 text-emerald-700";
+  return "bg-slate-100 text-slate-700";
+}
+
+function CleanSummaryBox({ label, value, note, variance }) {
+  const varianceClass = variance ? varianceColor(value) : "text-slate-950";
+
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <p className="text-sm font-bold text-slate-500">{label}</p>
+      <p className={`mt-2 text-2xl font-black ${varianceClass}`}>{value}</p>
+      {note && <p className="mt-2 text-xs text-slate-500">{note}</p>}
+    </div>
+  );
+}
+
+export function Admin({ report, result, monthly, verifyDeposit }) {
+  const topDeduction = [...report.deductionRows].sort((a, b) => toNum(b.amount) - toNum(a.amount))[0];
+  const largestDeposit = [...report.deposits].sort((a, b) => toNum(b.amount) - toNum(a.amount))[0];
+  const highestTankVariance = [...result.tankRows].sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance))[0];
+
+  const cashStatus = Math.abs(result.cashVariance) <= 100 ? "Okay" : "Check cash";
+  const tankStatus = Math.abs(result.tankVariance) <= 25 ? "Okay" : "Check tank";
+  const monthlyRows = monthly.rows;
+  const monthlyTotals = monthly.totals;
+
+  const totalExpectedTank = result.tankRows.reduce((sum, row) => sum + toNum(row.expectedDip), 0);
+  const totalActualTank = result.tankRows.reduce((sum, row) => sum + toNum(row.actualDip), 0);
+
+  const dailyCards = [
+    { title: "Station", value: report.station, note: `${report.date} - ${report.shift}`, dark: true },
+    { title: "Cashier", value: report.cashier, note: "Person who encoded the report" },
+    { title: "Liters Sold", value: `${litersFmt.format(result.totalLiters)} L`, note: "Total fuel sold today" },
+    { title: "Fuel Sales", value: php.format(result.fuelSales), note: "Fuel sales only" },
+    { title: "Oil Sales", value: php.format(report.oilSales), note: "Added to gross sales" },
+    { title: "Gross Sales", value: php.format(result.grossSales), note: "Fuel sales + oil sales" },
+    { title: "Deductions", value: php.format(result.deductions), note: "Money deducted from sales" },
+    { title: "Expected Cash", value: php.format(result.expectedCash), note: "Amount that should be deposited" },
+    { title: "Bank Deposits", value: php.format(result.bankTotal), note: "Amount deposited by manager" },
+    { title: "Pending Check", value: php.format(result.pendingBank), note: "Deposits not yet verified" },
+    { title: "Cash Difference", value: php.format(result.cashVariance), note: cashStatus },
+    { title: "Tank Difference", value: `${litersFmt.format(result.tankVariance)} L`, note: tankStatus },
+  ];
+
+  const simpleCashRows = [
+    ["1. Fuel sales", php.format(result.fuelSales)],
+    ["2. Add oil sales", php.format(report.oilSales)],
+    ["3. Gross sales", php.format(result.grossSales)],
+    ["4. Less deductions", php.format(result.deductions)],
+    ["5. Expected cash", php.format(result.expectedCash)],
+    ["6. Bank deposits", php.format(result.bankTotal)],
+    ["7. Cash difference", php.format(result.cashVariance)],
+  ];
+
+  const simpleCheckRows = [
+    ["Cash check", cashStatus],
+    ["Deposit check", result.pendingBank === 0 ? "All deposits verified" : `${php.format(result.pendingBank)} still needs checking`],
+    ["Tank check", tankStatus],
+    ["Biggest deduction", topDeduction ? `${topDeduction.name} - ${php.format(topDeduction.amount)}` : "None"],
+    ["Largest deposit", largestDeposit ? `${largestDeposit.bank} - ${php.format(largestDeposit.amount)}` : "None"],
+    ["Biggest tank difference", highestTankVariance ? `${highestTankVariance.tank} - ${litersFmt.format(highestTankVariance.variance)} L` : "None"],
+  ];
+
+  const monthlyCards = [
+    { title: "Stations", value: `${monthlyRows.length}`, note: "All stations included", dark: true },
+    { title: "Monthly Liters", value: `${litersFmt.format(monthlyTotals.totalLiters)} L`, note: "All stations combined" },
+    { title: "Monthly Gross Sales", value: php.format(monthlyTotals.grossSales), note: "Fuel + oil" },
+    { title: "Monthly Expected Cash", value: php.format(monthlyTotals.expectedCash), note: "Amount expected" },
+    { title: "Monthly Deposits", value: php.format(monthlyTotals.bankTotal), note: "Bank deposits" },
+    { title: "Pending Check", value: php.format(monthlyTotals.pendingBank), note: "Needs admin verification" },
+  ];
+
   return (
     <div className="space-y-6">
-      <Section icon={ClipboardList} title="Shift Details" subtitle="Cashier input for daily station report.">
-        <div className="grid gap-4 md:grid-cols-3">
-          <label>
-            <span className="text-xs font-bold uppercase text-slate-500">Report Date</span>
-            <Text value={report.date} onChange={(value) => patch("date", value)} />
-          </label>
+      <Section icon={BarChart3} title="Admin Summary" subtitle="Simple overview for checking the station report.">
+        <CardGrid items={dailyCards} />
+      </Section>
 
-          <label>
-            <span className="text-xs font-bold uppercase text-slate-500">Shift</span>
-            <select
-              value={report.shift}
-              onChange={(event) => patch("shift", event.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            >
-              {shifts.map((item) => <option key={item}>{item}</option>)}
-            </select>
-          </label>
-
-          <label>
-            <span className="text-xs font-bold uppercase text-slate-500">Cashier</span>
-            <Text value={report.cashier} onChange={(value) => patch("cashier", value)} />
-          </label>
+      <Section icon={FileText} title="Simple Cash Explanation" subtitle="Read this from top to bottom. This shows how much money should be deposited.">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+            <p className="mb-4 text-sm font-black text-slate-950">Cash Computation</p>
+            <LineList items={simpleCashRows} />
+          </div>
+          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+            <p className="mb-4 text-sm font-black text-slate-950">What Admin Should Check</p>
+            <LineList items={simpleCheckRows} />
+          </div>
         </div>
       </Section>
 
-      <Section icon={Gauge} title="Pump Reading - Liters Only" subtitle="Cashier sees liters sold only. Manager controls price per liter.">
-        <DataTable headers={["Pump", "Product", "Opening", "Closing", "Mechanical", "Liters Sold"]} minWidth="760px">
-          {report.pumpRows.map((row) => {
-            const liters = Math.max(0, toNum(row.closing) - toNum(row.opening));
-
-            return (
-              <tr key={row.id}>
-                <td className="px-4 py-3 font-bold">Pump {row.pump}</td>
-                <td className="px-4 py-3">{row.product}</td>
-                <td className="px-4 py-3"><Num value={row.opening} onChange={(value) => patchPump(row.id, "opening", value)} /></td>
-                <td className="px-4 py-3"><Num value={row.closing} onChange={(value) => patchPump(row.id, "closing", value)} /></td>
-                <td className="px-4 py-3"><Num value={row.mechanical} onChange={(value) => patchPump(row.id, "mechanical", value)} /></td>
-                <td className="px-4 py-3 font-black text-emerald-700">{litersFmt.format(liters)} L</td>
-              </tr>
-            );
-          })}
-        </DataTable>
-      </Section>
-
-      <Section icon={Database} title="Tank Inventory" subtitle="One Diesel tank, one Premium tank, and one Regular tank per station.">
-        <DataTable headers={["Tank", "Opening", "Delivery", "Pull-Out", "Calibration", "Actual Dip", "Expected Dip", "Variance"]} minWidth="820px">
-          {result.tankRows.map((row) => (
-            <tr key={row.tank}>
-              <td className="px-4 py-3 font-bold">{row.tank}</td>
-              <td className="px-4 py-3"><Num value={row.opening} onChange={(value) => patchTank(row.tank, "opening", value)} suffix="L" /></td>
-              <td className="px-4 py-3"><Num value={row.delivery} onChange={(value) => patchTank(row.tank, "delivery", value)} suffix="L" /></td>
-              <td className="px-4 py-3"><Num value={row.pullOut} onChange={(value) => patchTank(row.tank, "pullOut", value)} suffix="L" /></td>
-              <td className="px-4 py-3"><Num value={row.calibration} onChange={(value) => patchTank(row.tank, "calibration", value)} suffix="L" /></td>
-              <td className="px-4 py-3"><Num value={row.actualDip} onChange={(value) => patchTank(row.tank, "actualDip", value)} suffix="L" /></td>
-              <td className="px-4 py-3 font-black">{litersFmt.format(row.expectedDip)} L</td>
-              <td className="px-4 py-3 font-black">{litersFmt.format(row.variance)} L</td>
+      <Section icon={Gauge} title="Fuel Summary" subtitle="Shows liters sold, price, and sales per product.">
+        <DataTable headers={["Product", "Liters Sold", "Price/L", "POS Price/L", "Sales"]} minWidth="760px">
+          {products.map((product) => (
+            <tr key={product}>
+              <td className="px-4 py-3 font-black">{product}</td>
+              <td className="px-4 py-3">{litersFmt.format(result.liters[product])} L</td>
+              <td className="px-4 py-3">{php.format(report.prices[product])}</td>
+              <td className="px-4 py-3">{php.format(posPrice(report.prices[product]))}</td>
+              <td className="px-4 py-3 font-black">{php.format(result.liters[product] * posPrice(report.prices[product]))}</td>
             </tr>
           ))}
+          <tr className="bg-slate-950 text-white">
+            <td className="px-4 py-3 font-black">TOTAL</td>
+            <td className="px-4 py-3 font-black">{litersFmt.format(result.totalLiters)} L</td>
+            <td colSpan={2}></td>
+            <td className="px-4 py-3 font-black">{php.format(result.fuelSales)}</td>
+          </tr>
         </DataTable>
+        <p className="mt-3 text-xs text-slate-500">
+          POS price means manager price minus {php.format(DISCOUNT_PER_LITER)} per liter.
+        </p>
       </Section>
 
-      <Section icon={ReceiptText} title="Deductions" subtitle="Cashier handles deductions. Manager does not edit deductions.">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {report.deductionRows.map((row) => (
-            <label key={row.id}>
-              <span className="text-xs font-bold uppercase text-slate-500">{row.name}</span>
-              <Num value={row.amount} onChange={(value) => patchDeduction(row.id, value)} prefix="PHP" />
-            </label>
-          ))}
-        </div>
-
-        <div className="mt-4 rounded-2xl bg-slate-950 p-4 text-white">
-          <p className="text-xs text-slate-300">Total Deductions</p>
-          <p className="mt-1 text-2xl font-black">{php.format(result.deductions)}</p>
+      <Section icon={Database} title="Tank Summary" subtitle="Simple check if the tank reading is near the expected amount.">
+        <CardGrid
+          cols="md:grid-cols-3"
+          items={[
+            { title: "Tank Difference", value: `${litersFmt.format(result.tankVariance)} L`, note: tankStatus, dark: true },
+            {
+              title: "Biggest Difference",
+              value: highestTankVariance ? highestTankVariance.tank : "None",
+              note: highestTankVariance ? `${litersFmt.format(highestTankVariance.variance)} L` : "No data",
+            },
+            { title: "Tanks Checked", value: `${result.tankRows.length}`, note: "Diesel, Premium, Regular" },
+          ]}
+        />
+        <div className="mt-5">
+          <DataTable headers={["Tank", "Expected", "Actual", "Variance"]} minWidth="640px">
+            {result.tankRows.map((row) => (
+              <tr key={row.tank}>
+                <td className="px-4 py-3 font-black">{row.tank}</td>
+                <td className="px-4 py-3">{litersFmt.format(row.expectedDip)} L</td>
+                <td className="px-4 py-3">{litersFmt.format(row.actualDip)} L</td>
+                <td className={`px-4 py-3 font-black ${varianceColor(row.variance)}`}>
+                  {litersFmt.format(row.variance)} L
+                </td>
+              </tr>
+            ))}
+          </DataTable>
         </div>
       </Section>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Section icon={ReceiptText} title="Daily PO Accounts" subtitle="PO list with auto total.">
-          <RowList rows={report.poRows} firstKey="account" firstLabel="PO / Account" total={result.poTotal} addLabel="Add PO" placeholder="Customer / account" onAdd={addPo} onPatch={patchPo} onDelete={deletePo} />
-        </Section>
+      <Section icon={ReceiptText} title="Deductions, PO, and Purchases" subtitle="Simple list of money that affects the report.">
+        <CardGrid
+          cols="md:grid-cols-3"
+          items={[
+            { title: "Deductions", value: php.format(result.deductions), note: topDeduction ? `Biggest: ${topDeduction.name}` : "No deductions" },
+            { title: "PO Accounts", value: php.format(result.poTotal), note: `${report.poRows.length} items` },
+            { title: "Purchases", value: php.format(result.purchaseTotal), note: `${report.purchaseRows.length} items` },
+          ]}
+        />
+      </Section>
 
-        <Section icon={ReceiptText} title="Daily Purchase Requests" subtitle="Purchase request list with auto total.">
-          <RowList rows={report.purchaseRows} firstKey="particular" firstLabel="Particular" total={result.purchaseTotal} addLabel="Add Particular" placeholder="Example: supplies" onAdd={addPurchase} onPatch={patchPurchase} onDelete={deletePurchase} />
-        </Section>
-      </div>
+      <Section icon={FileText} title="Oil and Coke" subtitle="Oil is part of sales. Coke is count only.">
+        <CardGrid
+          cols="md:grid-cols-4"
+          items={[
+            { title: "Oil Sales", value: php.format(report.oilSales), note: "Added to gross sales" },
+            { title: "Coke Beginning", value: `${report.coke.beginning} pcs` },
+            { title: "Coke Ending", value: `${report.coke.ending} pcs` },
+            { title: "Coke Sold", value: `${result.cokeSold} pcs`, note: "Count only" },
+          ]}
+        />
+      </Section>
 
-      <Section icon={FileText} title="Oil Sales & Coke Count" subtitle="Oil sales are included in gross sales. Coke is counted only and not added to sales.">
-        <div className="grid gap-4 md:grid-cols-4">
-          <label className="space-y-2 md:col-span-4">
-            <span className="text-xs font-bold uppercase text-slate-500">Oil Sales Amount</span>
-            <Num value={report.oilSales} onChange={(value) => patch("oilSales", value)} prefix="PHP" />
-          </label>
+      <Section icon={CheckCircle2} title="Deposit Verification" subtitle="Admin checks if bank deposits are real and correct.">
+        <CardGrid
+          cols="md:grid-cols-3"
+          items={[
+            { title: "Total Deposits", value: php.format(result.bankTotal), dark: true },
+            { title: "Verified", value: php.format(result.verifiedBank) },
+            { title: "Pending", value: php.format(result.pendingBank) },
+          ]}
+        />
+        <div className="mt-5">
+          <DataTable headers={["Date", "Bank", "Reference", "Amount", "Status", "Action"]} minWidth="760px">
+            {report.deposits.map((row) => (
+              <tr key={row.id}>
+                <td className="px-4 py-3 font-bold">{row.date}</td>
+                <td className="px-4 py-3">{row.bank}</td>
+                <td className="px-4 py-3">{row.reference}</td>
+                <td className="px-4 py-3 font-black">{php.format(row.amount)}</td>
+                <td className="px-4 py-3">
+                  <span className={`rounded-full px-3 py-1 text-xs font-black ${row.verified ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                    {row.verified ? "Verified" : "Pending"}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <button onClick={() => verifyDeposit(row.id)} className="rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-black text-white">
+                    {row.verified ? "Undo" : "Verify"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </DataTable>
+        </div>
+      </Section>
 
-          <label>
-            <span className="text-xs font-bold uppercase text-slate-500">Coke Beginning</span>
-            <Num value={report.coke.beginning} onChange={(value) => patchObj("coke", "beginning", value)} />
-          </label>
+      <Section icon={BarChart3} title="Monthly Summary" subtitle="Simple total for all stations.">
+        <CardGrid items={monthlyCards} />
+        <div className="mt-5">
+          <DataTable headers={["Station", "Liters", "Gross Sales", "Expected Cash", "Deposits", "Pending", "Cash Variance"]} minWidth="900px">
+            {monthlyRows.map((row) => (
+              <tr key={row.station}>
+                <td className="px-4 py-3 font-black">{row.station}</td>
+                <td className="px-4 py-3">{litersFmt.format(row.result.totalLiters)} L</td>
+                <td className="px-4 py-3 font-black">{php.format(row.result.grossSales)}</td>
+                <td className="px-4 py-3">{php.format(row.result.expectedCash)}</td>
+                <td className="px-4 py-3">{php.format(row.result.bankTotal)}</td>
+                <td className="px-4 py-3">{php.format(row.result.pendingBank)}</td>
+                <td className={`px-4 py-3 font-black ${varianceColor(row.result.cashVariance)}`}>
+                  {php.format(row.result.cashVariance)}
+                </td>
+              </tr>
+            ))}
+            <tr className="bg-slate-950 text-white">
+              <td className="px-4 py-3 font-black">TOTAL</td>
+              <td className="px-4 py-3 font-black">{litersFmt.format(monthlyTotals.totalLiters)} L</td>
+              <td className="px-4 py-3 font-black">{php.format(monthlyTotals.grossSales)}</td>
+              <td className="px-4 py-3 font-black">{php.format(monthlyTotals.expectedCash)}</td>
+              <td className="px-4 py-3 font-black">{php.format(monthlyTotals.bankTotal)}</td>
+              <td className="px-4 py-3 font-black">{php.format(monthlyTotals.pendingBank)}</td>
+              <td className={`px-4 py-3 font-black ${monthlyTotals.cashVariance < 0 ? "text-rose-300" : monthlyTotals.cashVariance > 0 ? "text-emerald-300" : "text-white"}`}>
+                {php.format(monthlyTotals.cashVariance)}
+              </td>
+            </tr>
+          </DataTable>
+        </div>
+      </Section>
 
-          <label>
-            <span className="text-xs font-bold uppercase text-slate-500">Coke Ending</span>
-            <Num value={report.coke.ending} onChange={(value) => patchObj("coke", "ending", value)} />
-          </label>
+      <Section icon={CheckCircle2} title="Clean Summary" subtitle="Final quick check at the bottom. Negative variance is red. Positive variance is green.">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <CleanSummaryBox label="Gross Sales" value={php.format(result.grossSales)} note="Fuel sales + oil sales" />
+          <CleanSummaryBox label="Expected Cash" value={php.format(result.expectedCash)} note="What should be deposited" />
+          <CleanSummaryBox label="Bank Deposits" value={php.format(result.bankTotal)} note="What was deposited" />
+          <CleanSummaryBox label="Cash Variance" value={php.format(result.cashVariance)} note="Deposits minus expected cash" variance />
+          <CleanSummaryBox label="Expected Tank Total" value={`${litersFmt.format(totalExpectedTank)} L`} note="Expected dip total" />
+          <CleanSummaryBox label="Actual Tank Total" value={`${litersFmt.format(totalActualTank)} L`} note="Actual dip total" />
+          <CleanSummaryBox label="Tank Variance" value={`${litersFmt.format(result.tankVariance)} L`} note="Actual tank minus expected tank" variance />
+          <CleanSummaryBox label="Pending Verification" value={php.format(result.pendingBank)} note="Deposits not yet checked" />
+        </div>
 
-          <label>
-            <span className="text-xs font-bold uppercase text-slate-500">Coke Redemption</span>
-            <Num value={report.coke.redemption} onChange={(value) => patchObj("coke", "redemption", value)} />
-          </label>
+        <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-5">
+          <p className="mb-4 text-sm font-black text-slate-950">Variance Guide</p>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl bg-white p-4">
+              <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-black text-rose-700">Negative / Red</span>
+              <p className="mt-3 text-sm text-slate-600">Deposited or actual amount is lower than expected.</p>
+            </div>
+            <div className="rounded-2xl bg-white p-4">
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">Positive / Green</span>
+              <p className="mt-3 text-sm text-slate-600">Deposited or actual amount is higher than expected.</p>
+            </div>
+            <div className="rounded-2xl bg-white p-4">
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">Zero</span>
+              <p className="mt-3 text-sm text-slate-600">No difference found.</p>
+            </div>
+          </div>
+        </div>
 
-          <Card title="Coke Sold" value={`${result.cokeSold} pcs`} />
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          <SimpleExplain number="1" title="Check cash first">
+            Compare expected cash and bank deposits. If the variance is red, it means the deposit is short.
+          </SimpleExplain>
+          <SimpleExplain number="2" title="Check tanks next">
+            Compare expected tank and actual tank. Red means actual is lower than expected.
+          </SimpleExplain>
+          <SimpleExplain number="3" title="Then verify deposits">
+            Press verify only after checking the bank deposit proof.
+          </SimpleExplain>
         </div>
       </Section>
     </div>
