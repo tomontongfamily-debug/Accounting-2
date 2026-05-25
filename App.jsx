@@ -1,39 +1,253 @@
-import { makeReport, stations } from "./data";
-import { compute, makeAllStationMonthlySummary, posPrice } from "./utils";
+import { useMemo, useState } from "react";
+import { ADMIN_PASSWORD, MANAGER_PASSWORD, makeReport, uid } from "./data";
+import { compute, makeAllStationMonthlySummary } from "./utils";
+import { Admin } from "./Admin";
+import { Cashier } from "./Cashier";
+import { Gate } from "./Gate";
+import { Manager } from "./Manager";
 
-export function runTests() {
-  const mabolo = makeReport("Mabolo");
-  const maboloResult = compute(mabolo);
-  const pondol = makeReport("Pondol");
-  const pondolResult = compute(pondol);
+function Header({ mode, setMode, station, selectStation }) {
+  return (
+    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div>
+        <h1 className="text-3xl font-black text-slate-950">Station Report</h1>
+        <p className="text-sm text-slate-600">Station: {station}</p>
+      </div>
+      <div className="flex gap-2">
+        {["cashier", "manager", "admin"].map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={`rounded-lg px-4 py-2 font-bold capitalize ${
+              mode === m
+                ? "bg-slate-950 text-white"
+                : "bg-slate-200 text-slate-900 hover:bg-slate-300"
+            }`}
+          >
+            {m}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-  console.assert(posPrice(60) === 58, "less 2 pesos per liter should be applied");
-  console.assert(mabolo.pumpRows.length === 4, "Mabolo should have four pump rows");
-  console.assert(mabolo.pumpRows.map((row) => row.product).join(",") === "Premium,Regular,Regular,Diesel", "Mabolo pump layout should be Premium, Regular, Regular, Diesel");
-  console.assert(pondol.pumpRows.length === 3, "Pondol should have three listed pump rows");
-  console.assert(maboloResult.pumpCounts.Regular === 2, "Mabolo should count two Regular pumps");
-  console.assert(maboloResult.tankRows.length === 3, "each station should have three tanks");
-  console.assert(maboloResult.cokeSold === 25, "coke sold should be beginning minus ending minus redemption");
-  console.assert(maboloResult.grossSales === maboloResult.fuelSales + mabolo.oilSales, "gross sales should be fuel plus oil only");
-  console.assert(maboloResult.poTotal === 12354, "PO total should add all PO rows");
-  console.assert(maboloResult.purchaseTotal === 15575, "purchase request total should add all purchase rows");
-  console.assert(maboloResult.bankTotal === 38500, "bank total should add all deposits");
-  console.assert(maboloResult.pendingBank === 38500, "pending bank should be total minus verified");
-  console.assert(maboloResult.actualCash === maboloResult.bankTotal, "manager bank deposits are the actual cash basis in this demo");
-  console.assert(maboloResult.totalLiters > 0, "total liters should compute from pump readings");
-  console.assert(maboloResult.deductions === 60730, "deductions should total all cashier deduction rows");
-  console.assert(maboloResult.fuelSales > 0, "fuel sales should compute using manager price less discount");
-  console.assert(maboloResult.liters.Diesel > 0 && maboloResult.liters.Premium > 0 && maboloResult.liters.Regular > 0, "all product liters should compute");
-  console.assert(maboloResult.verifiedBank === 0, "default deposits should start unverified");
-  console.assert(maboloResult.cashVariance === maboloResult.actualCash - maboloResult.expectedCash, "cash variance should be actual cash minus expected cash");
-  console.assert(pondolResult.totalPumps === 3, "Pondol total pumps should follow the listed layout");
+export default function App() {
+  const [mode, setMode] = useState("cashier");
+  const [station, setStation] = useState("Mabolo");
+  const [report, setReport] = useState(() => makeReport("Mabolo"));
+  const [managerOpen, setManagerOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
 
-  const monthly = makeAllStationMonthlySummary();
-  console.assert(monthly.rows.length === stations.length, "monthly summary should include all stations");
-  console.assert(monthly.totals.totalPumps > 0, "monthly summary should total pump count");
-  console.assert(monthly.totals.totalLiters > maboloResult.totalLiters, "monthly all-station liters should be larger than one station daily liters");
-  console.assert(monthly.totals.bankTotal > 0, "monthly all-station bank total should compute");
-  console.assert(monthly.totals.liters.Diesel > 0, "monthly diesel liters should compute");
-  console.assert(monthly.totals.poTotal > 0 && monthly.totals.purchaseTotal > 0, "monthly PO and purchase totals should compute");
-  console.assert(Object.keys(monthly.totals.liters).length === 3, "monthly summary should keep three fuel products");
+  const result = useMemo(() => compute(report), [report]);
+  const monthly = useMemo(() => makeAllStationMonthlySummary(), []);
+
+  function selectStation(nextStation) {
+    setStation(nextStation);
+    setReport(makeReport(nextStation));
+  }
+
+  function patch(key, value) {
+    setReport((old) => ({ ...old, [key]: value }));
+  }
+
+  function patchObj(section, key, value) {
+    setReport((old) => ({
+      ...old,
+      [section]: { ...old[section], [key]: value },
+    }));
+  }
+
+  function patchPump(rowId, key, value) {
+    setReport((old) => ({
+      ...old,
+      pumpRows: old.pumpRows.map((row) => (row.id === rowId ? { ...row, [key]: value } : row)),
+    }));
+  }
+
+  function patchTank(tank, key, value) {
+    setReport((old) => ({
+      ...old,
+      tankRows: old.tankRows.map((row) => (row.tank === tank ? { ...row, [key]: value } : row)),
+    }));
+  }
+
+  function patchDeduction(rowId, value) {
+    setReport((old) => ({
+      ...old,
+      deductionRows: old.deductionRows.map((row) => (row.id === rowId ? { ...row, amount: value } : row)),
+    }));
+  }
+
+  function setPrice(product, value) {
+    setReport((old) => ({
+      ...old,
+      prices: { ...old.prices, [product]: value },
+    }));
+  }
+
+  function addPo() {
+    setReport((old) => ({
+      ...old,
+      poRows: [...old.poRows, { id: uid(), account: "", amount: 0 }],
+    }));
+  }
+
+  function patchPo(rowId, key, value) {
+    setReport((old) => ({
+      ...old,
+      poRows: old.poRows.map((row) => (row.id === rowId ? { ...row, [key]: value } : row)),
+    }));
+  }
+
+  function deletePo(rowId) {
+    setReport((old) => ({
+      ...old,
+      poRows: old.poRows.filter((row) => row.id !== rowId),
+    }));
+  }
+
+  function addPurchase() {
+    setReport((old) => ({
+      ...old,
+      purchaseRows: [...old.purchaseRows, { id: uid(), particular: "", amount: 0 }],
+    }));
+  }
+
+  function patchPurchase(rowId, key, value) {
+    setReport((old) => ({
+      ...old,
+      purchaseRows: old.purchaseRows.map((row) => (row.id === rowId ? { ...row, [key]: value } : row)),
+    }));
+  }
+
+  function deletePurchase(rowId) {
+    setReport((old) => ({
+      ...old,
+      purchaseRows: old.purchaseRows.filter((row) => row.id !== rowId),
+    }));
+  }
+
+  function addDeposit() {
+    setReport((old) => ({
+      ...old,
+      deposits: [
+        ...old.deposits,
+        { id: uid(), date: old.date, time: "", bank: "", reference: "", amount: 0, verified: false },
+      ],
+    }));
+  }
+
+  function patchDeposit(rowId, key, value) {
+    setReport((old) => ({
+      ...old,
+      deposits: old.deposits.map((row) => (row.id === rowId ? { ...row, [key]: value } : row)),
+    }));
+  }
+
+  function deleteDeposit(rowId) {
+    setReport((old) => ({
+      ...old,
+      deposits: old.deposits.filter((row) => row.id !== rowId),
+    }));
+  }
+
+  function verifyDeposit(rowId) {
+    setReport((old) => ({
+      ...old,
+      deposits: old.deposits.map((row) => (row.id === rowId ? { ...row, verified: !row.verified } : row)),
+    }));
+  }
+
+  function unlock(role) {
+    const correct = role === "manager" ? MANAGER_PASSWORD : ADMIN_PASSWORD;
+
+    if (password === correct) {
+      if (role === "manager") setManagerOpen(true);
+      if (role === "admin") setAdminOpen(true);
+      setPassword("");
+      setError("");
+    } else {
+      setError("Incorrect password");
+    }
+  }
+
+  let page = null;
+
+  if (mode === "cashier") {
+    page = (
+      <Cashier
+        report={report}
+        result={result}
+        patch={patch}
+        patchObj={patchObj}
+        patchPump={patchPump}
+        patchTank={patchTank}
+        patchDeduction={patchDeduction}
+        addPo={addPo}
+        patchPo={patchPo}
+        deletePo={deletePo}
+        addPurchase={addPurchase}
+        patchPurchase={patchPurchase}
+        deletePurchase={deletePurchase}
+      />
+    );
+  }
+
+  if (mode === "manager") {
+    page = managerOpen ? (
+      <Manager
+        report={report}
+        result={result}
+        setPrice={setPrice}
+        addDeposit={addDeposit}
+        patchDeposit={patchDeposit}
+        deleteDeposit={deleteDeposit}
+      />
+    ) : (
+      <Gate
+        title="Manager Password"
+        password={password}
+        setPassword={setPassword}
+        error={error}
+        onUnlock={() => unlock("manager")}
+        demo={MANAGER_PASSWORD}
+      />
+    );
+  }
+
+  if (mode === "admin") {
+    page = adminOpen ? (
+      <Admin report={report} result={result} monthly={monthly} verifyDeposit={verifyDeposit} />
+    ) : (
+      <Gate
+        title="Admin Password"
+        password={password}
+        setPassword={setPassword}
+        error={error}
+        onUnlock={() => unlock("admin")}
+        demo={ADMIN_PASSWORD}
+      />
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,#dcfce7_0,#f8fafc_34%,#f8fafc_100%)] p-4 text-slate-900 sm:p-6 lg:p-8">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <Header
+          mode={mode}
+          setMode={(next) => {
+            setMode(next);
+            setPassword("");
+            setError("");
+          }}
+          station={station}
+          selectStation={selectStation}
+        />
+        {page}
+      </div>
+    </div>
+  );
 }
