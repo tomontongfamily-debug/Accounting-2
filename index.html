@@ -1,74 +1,13 @@
-import { BarChart3, Gauge, Plus, Trash2, Wallet } from "lucide-react";
-import { DISCOUNT_PER_LITER, products } from "../data";
-import { litersFmt, php, posPrice } from "../utils";
-import { Card, DataTable, Num, ReadOnlyLine, Section, Text } from "./SharedUI";
-
-export function Manager({ report, result, setPrice, addDeposit, patchDeposit, deleteDeposit }) {
-  const safeCashVariance =
-    Math.abs(result.cashVariance) <= 100
-      ? "Balanced"
-      : Math.abs(result.cashVariance) <= 1000
-        ? "Needs checking"
-        : "High variance";
-
-  return (
-    <div className="space-y-6">
-      <Section icon={Gauge} title="Fuel Price Setup" subtitle="Only manager can edit price per liter. POS price is automatically less PHP 2.00/L.">
-        <div className="grid gap-4 md:grid-cols-3">
-          {products.map((product) => (
-            <div key={product} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="mb-2 text-xs font-bold uppercase text-slate-500">{product} Price/L</p>
-              <Num value={report.prices[product]} onChange={(value) => setPrice(product, value)} prefix="PHP" />
-
-              <div className="mt-3 rounded-2xl bg-white p-3 text-sm">
-                <ReadOnlyLine label="Standard Discount" value={`PHP ${DISCOUNT_PER_LITER.toFixed(2)}/L`} />
-                <ReadOnlyLine label="POS Price" value={`${php.format(posPrice(report.prices[product]))}/L`} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </Section>
-
-      <Section icon={BarChart3} title="Daily Summary" subtitle="Manager can view totals only. Cashier entries are not editable here.">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Card title="Station" value={report.station} note={`${report.date} - ${report.shift}`} dark />
-          <Card title="Total Liters Sold" value={`${litersFmt.format(result.totalLiters)} L`} note="All products combined" />
-          <Card title="Fuel Sales" value={php.format(result.fuelSales)} note="Liters x POS price" />
-          <Card title="Gross Sales" value={php.format(result.grossSales)} note="Fuel + oil sales" />
-          <Card title="Expected Cash" value={php.format(result.expectedCash)} note="Gross sales less deductions" />
-          <Card title="Bank Deposits" value={php.format(result.bankTotal)} note="Manager-entered deposits" />
-          <Card title="Cash Variance" value={php.format(result.cashVariance)} note={safeCashVariance} />
-          <Card title="Pending Verification" value={php.format(result.pendingBank)} />
-        </div>
-      </Section>
-
-      <Section icon={Wallet} title="Bank Deposits" subtitle="Manager handles bank deposits.">
-        <DataTable headers={["Date", "Time", "Bank", "Reference", "Amount", "Status", "Action"]} minWidth="840px">
-          {report.deposits.map((row) => (
-            <tr key={row.id}>
-              <td className="px-4 py-3"><Text value={row.date} onChange={(value) => patchDeposit(row.id, "date", value)} /></td>
-              <td className="px-4 py-3"><Text value={row.time} onChange={(value) => patchDeposit(row.id, "time", value)} /></td>
-              <td className="px-4 py-3"><Text value={row.bank} onChange={(value) => patchDeposit(row.id, "bank", value)} /></td>
-              <td className="px-4 py-3"><Text value={row.reference} onChange={(value) => patchDeposit(row.id, "reference", value)} /></td>
-              <td className="px-4 py-3"><Num value={row.amount} onChange={(value) => patchDeposit(row.id, "amount", value)} prefix="PHP" /></td>
-              <td className="px-4 py-3">
-                <span className={`rounded-full px-3 py-1 text-xs font-black ${row.verified ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                  {row.verified ? "Verified" : "Pending"}
-                </span>
-              </td>
-              <td className="px-4 py-3">
-                <button onClick={() => deleteDeposit(row.id)} className="rounded-xl bg-rose-50 px-3 py-2 text-rose-600">
-                  <Trash2 size={18} />
-                </button>
-              </td>
-            </tr>
-          ))}
-        </DataTable>
-
-        <button onClick={addDeposit} className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white">
-          <Plus size={18} /> Add Bank Deposit
-        </button>
-      </Section>
-    </div>
-  );
-}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Accounting System</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/main.jsx"></script>
+  </body>
+</html>
